@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>실장님 재부재</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
+    background: #f3f4f6; color: #111827;
+    min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; padding: 16px; gap: 16px;
+  }
+  .card, .panel {
+    width: 100%; max-width: 420px; background: #fff;
+    border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,.06);
+  }
+  .card { padding: 36px 24px; text-align: center; }
+  .label { font-size: 15px; color: #6b7280; margin-bottom: 12px; }
+  .status {
+    display: inline-block; font-size: 44px; font-weight: 800;
+    padding: 10px 36px; border-radius: 999px; transition: .2s;
+  }
+  .status.in  { background: #dcfce7; color: #15803d; }
+  .status.out { background: #fee2e2; color: #b91c1c; }
+  .status.loading { background: #f3f4f6; color: #9ca3af; font-size: 20px; }
+  .detail { margin-top: 16px; font-size: 18px; font-weight: 600; min-height: 24px; }
+  .updated { margin-top: 8px; font-size: 13px; color: #9ca3af; }
+  .panel { padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+  .row { display: flex; gap: 8px; }
+  select, input {
+    flex: 1; padding: 12px; font-size: 15px;
+    border: 1px solid #d1d5db; border-radius: 12px; background: #fff;
+  }
+  button {
+    flex: 1; padding: 16px; font-size: 17px; font-weight: 700;
+    border: none; border-radius: 12px; cursor: pointer; color: #fff;
+  }
+  button:active { transform: scale(.98); }
+  button:disabled { opacity: .5; cursor: default; }
+  .btn-in  { background: #16a34a; }
+  .btn-out { background: #dc2626; }
+  .hint { font-size: 12px; color: #9ca3af; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="label">실장님</div>
+  <div id="status" class="status loading">불러오는 중…</div>
+  <div id="detail" class="detail"></div>
+  <div id="updated" class="updated"></div>
+</div>
+
+<div class="panel">
+  <button class="btn-in" id="btnIn">재실로 변경</button>
+  <div class="row">
+    <select id="reason">
+      <option value="">사유 선택(선택)</option>
+      <option>회의</option>
+      <option>외근</option>
+      <option>출장</option>
+      <option>식사</option>
+      <option>휴가</option>
+      <option>기타</option>
+    </select>
+    <input type="time" id="returnAt" title="복귀 예정 시간">
+  </div>
+  <button class="btn-out" id="btnOut">부재로 변경</button>
+  <div class="hint">부재 사유·복귀 시간은 비워둬도 돼요.</div>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getDatabase, ref, onValue, set, serverTimestamp }
+    from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+  // ▼ Firebase 콘솔에서 복사한 설정으로 교체
+  const firebaseConfig = {
+    apiKey: "AIzaSyCwZwWFOk5LoM9i6Kay_yidMi_OlPVvpWY",
+    authDomain: "kido-a70a8.firebaseapp.com",
+    databaseURL: "https://kido-a70a8-default-rtdb.firebaseio.com",
+    projectId: "kido-a70a8",
+    storageBucket: "kido-a70a8.firebasestorage.app",
+    messagingSenderId: "528230761190",
+    appId: "1:528230761190:web:bf846b8b11b697479ef127",
+    measurementId: "G-NN3B5HEFQ6"
+  };
+
+  const db = getDatabase(initializeApp(firebaseConfig));
+  const statusRef = ref(db, "status");
+
+  const $ = id => document.getElementById(id);
+
+  function fmt(ts) {
+    if (!ts) return "";
+    const d = new Date(ts);
+    const p = n => String(n).padStart(2, "0");
+    return `${d.getMonth()+1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())} 업데이트`;
+  }
+
+  function render(data) {
+    const el = $("status");
+    if (!data) {
+      el.className = "status loading";
+      el.textContent = "상태 없음";
+      $("detail").textContent = "";
+      $("updated").textContent = "";
+      return;
+    }
+    const isIn = data.state === "in";
+    el.className = "status " + (isIn ? "in" : "out");
+    el.textContent = isIn ? "재실" : "부재";
+
+    const parts = [];
+    if (!isIn && data.reason) parts.push(data.reason);
+    if (!isIn && data.returnAt) parts.push(`${data.returnAt} 복귀 예정`);
+    $("detail").textContent = parts.join(" · ");
+    $("updated").textContent = fmt(data.updatedAt);
+  }
+
+  onValue(statusRef, snap => render(snap.val()), err => {
+    $("status").className = "status loading";
+    $("status").textContent = "연결 오류";
+    console.error(err);
+  });
+
+  async function save(payload) {
+    $("btnIn").disabled = $("btnOut").disabled = true;
+    try {
+      await set(statusRef, { ...payload, updatedAt: serverTimestamp() });
+    } catch (e) {
+      alert("저장 실패: " + e.message);
+    } finally {
+      $("btnIn").disabled = $("btnOut").disabled = false;
+    }
+  }
+
+  $("btnIn").onclick = () => save({ state: "in", reason: "", returnAt: "" });
+  $("btnOut").onclick = () => save({
+    state: "out",
+    reason: $("reason").value,
+    returnAt: $("returnAt").value
+  });
+</script>
+</body>
+</html>
